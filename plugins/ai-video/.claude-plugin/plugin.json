@@ -1,0 +1,8 @@
+{
+  "name": "ai-video",
+  "version": "0.1.0",
+  "description": "話しかけるだけで動画を作る: 絵コンテ(画像・構図・カメラ・光・音)→ 仮音声つきアニマティックで確認 → Kling / Seedance / Gemini で動画生成。プロンプトは修正理由つきでバージョン管理。Mac 専用。",
+  "author": { "name": "AI Video Studio" },
+  "keywords": ["video", "storyboard", "animatic", "kling", "seedance", "gpt-image", "japanese"],
+  "license": "MIT"
+}

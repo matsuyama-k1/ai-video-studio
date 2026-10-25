@@ -1,0 +1,9 @@
+.env.local
+outputs/
+projects/*/scenes/*/renders/*.mp4
+projects/*/scenes/*/renders/*.jpg
+projects/*/storyboard/audio/
+projects/*/storyboard/animatic.mp4
+projects/*/storyboard/frames/_placeholder-*
+__pycache__/
+.DS_Store

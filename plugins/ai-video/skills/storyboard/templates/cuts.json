@@ -1,0 +1,89 @@
+{
+  "project": {
+    "title": "",
+    "aspect": "16:9",
+    "provider": "kling",
+    "style_ja": "暖色の実写シネマ調、浅い被写界深度",
+    "style_en": "a warm, cinematic live-action look with shallow depth of field",
+    "voices": {
+      "Aya": "Kyoko",
+      "narrator": "Eddy (Japanese (Japan))",
+      "default": "Kyoko"
+    },
+    "voice_rate": 180,
+    "ref_videos": []
+  },
+  "cuts": [
+    {
+      "id": "c01",
+      "scene": "s01-window",
+      "duration": 5,
+      "summary_ja": "窓辺のアヤが振り返り、静かに微笑む",
+      "subject": {
+        "ja": "アヤ(20代後半、黒髪ボブ、白シャツ)",
+        "en": "Aya, a Japanese woman in her late twenties with a black bob, wearing a crisp white shirt,"
+      },
+      "action": {
+        "ja": "ゆっくり振り返り、肩の力が抜けて微笑む",
+        "en": "slowly turns toward the camera, her shoulders relax and a quiet smile spreads across her face"
+      },
+      "setting": {
+        "ja": "近未来オフィスの大きな窓辺、朝",
+        "en": "by the floor-to-ceiling window of a near-future office in the early morning"
+      },
+      "composition": {
+        "shot": "MS",
+        "angle": "eye-level",
+        "lens": "50mm",
+        "framing": "subject on the right third, window light on the left",
+        "ja": "ミディアム、目線の高さ、右1/3に人物・左に窓"
+      },
+      "camera": {
+        "move": "slow dolly-in ending on a close-up of her face",
+        "ja": "ゆっくりドリーイン、顔のアップで終わる"
+      },
+      "lighting": {
+        "ja": "朝日の逆光、髪に暖色のリムライト",
+        "en": "low morning sun backlighting her, warm golden rim light on her hair"
+      },
+      "color": {
+        "ja": "暖色、ハイライトはやわらかく",
+        "en": "warm amber tones with soft highlights"
+      },
+      "tempo": {
+        "pace": "slow",
+        "transition_out": "cut",
+        "ja": "ゆったり。振り返りに2秒、笑顔で1秒止める"
+      },
+      "audio": {
+        "music": "calm solo piano",
+        "ambience": "faint city traffic outside the window",
+        "sfx": "",
+        "dialogue": [
+          {
+            "speaker": "Aya",
+            "lang": "Japanese",
+            "delivery": "softly",
+            "line": "やっと、ここまで来た"
+          }
+        ],
+        "ja": "静かなピアノ、窓の外の街の音"
+      },
+      "narration_ja": "",
+      "refs": [
+        "refs/char-aya.png"
+      ],
+      "ref_video": {
+        "file": "refs/video/sample.mp4",
+        "start": 3.2,
+        "end": 6.0,
+        "borrow_ja": "寄りの速さと逆光の感じ"
+      },
+      "frame": "",
+      "frame_source": "",
+      "frame_prompt": "Cinematic still, medium shot at eye level, 50mm lens. Aya, a Japanese woman in her late twenties with a black bob and a crisp white shirt, stands on the right third by a floor-to-ceiling window of a near-future office, turning toward the camera. Low morning sun backlighting her, warm golden rim light on her hair, warm amber tones, shallow depth of field.",
+      "use_frame_as_first_frame": true,
+      "notes_ja": ""
+    }
+  ]
+}

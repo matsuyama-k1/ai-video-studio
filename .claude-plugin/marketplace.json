@@ -1,0 +1,14 @@
+{
+  "name": "ai-video-studio",
+  "owner": {
+    "name": "AI Video Studio"
+  },
+  "description": "話しかけるだけで動画を作るための Claude Code プラグイン(絵コンテ・アニマティック・AI動画生成)",
+  "plugins": [
+    {
+      "name": "ai-video",
+      "source": "./plugins/ai-video",
+      "description": "絵コンテ → アニマティック → AI動画生成。初めての人は /ai-video:setup から。"
+    }
+  ]
+}

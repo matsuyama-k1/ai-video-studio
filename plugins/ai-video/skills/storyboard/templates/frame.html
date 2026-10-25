@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Frame editor</title>
+<style>
+:root{--bg:#f4f3f0;--panel:#fff;--ink:#1d1d1f;--muted:#6b6b70;--line:#e2e0db;--accent:#3a6ff7;--warn:#d9480f;--sel:rgba(255,64,64,.45)}
+@media (prefers-color-scheme:dark){:root{--bg:#131315;--panel:#1d1d20;--ink:#ececef;--muted:#9a9aa2;--line:#2e2e33;--accent:#7d9cff;--warn:#ff8a5c}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 -apple-system,"Hiragino Sans","Noto Sans JP",sans-serif}
+header{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--line)}
+header h1{font-size:16px;margin:0}header a{color:var(--accent);text-decoration:none;font-size:13px}
+.cuts{display:flex;gap:6px;overflow-x:auto;padding:10px 16px}
+.cuts button{flex:0 0 auto;width:112px;padding:0;border:2px solid transparent;border-radius:6px;overflow:hidden;background:var(--panel);cursor:pointer;color:var(--ink)}
+.cuts button.active{border-color:var(--accent)}
+.cuts img{display:block;width:100%;aspect-ratio:var(--ar);object-fit:cover;background:#333}
+.cuts span{display:block;font-size:11px;padding:2px 4px;text-align:left}
+main{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:16px;padding:0 16px 16px}
+@media (max-width:960px){main{grid-template-columns:1fr}}
+.tools{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:8px}
+.wrap{position:relative;background:#000;border-radius:8px;overflow:hidden;line-height:0}
+.wrap img{width:100%;display:block}
+#overlay{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair;touch-action:none}
+button,select{font:inherit;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:7px;padding:5px 10px;cursor:pointer}
+button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button:disabled{opacity:.5;cursor:default}
+aside{display:flex;flex-direction:column;gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px}
+.card h2{font-size:13px;margin:0 0 8px;color:var(--muted);font-weight:600}
+textarea{width:100%;min-height:70px;font:inherit;border:1px solid var(--line);border-radius:6px;padding:6px 8px;background:var(--bg);color:var(--ink);resize:vertical}
+.row{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:8px}
+.refs{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;max-height:180px;overflow:auto}
+.refs label{position:relative;cursor:pointer;font-size:10px;line-height:1.2;color:var(--muted)}
+.refs img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:4px;border:2px solid transparent;display:block}
+.refs input{position:absolute;opacity:0}.refs input:checked+img{border-color:var(--accent)}
+.hist{display:flex;flex-direction:column;gap:6px;max-height:300px;overflow:auto}
+.h{display:grid;grid-template-columns:72px 1fr;gap:8px;align-items:start;padding:4px;border-radius:6px;cursor:pointer}
+.h:hover{background:var(--bg)}.h.current{outline:2px solid var(--accent)}
+.h img{width:72px;aspect-ratio:var(--ar);object-fit:cover;border-radius:4px}
+.h div{font-size:11px;color:var(--muted);overflow:hidden}.h b{color:var(--ink);font-size:12px}
+.status{font-size:12px;color:var(--muted);min-height:18px}.status.err{color:var(--warn)}
+.busy{position:absolute;inset:0;background:#0008;color:#fff;display:none;align-items:center;justify-content:center;font-size:15px;line-height:1.5}
+.busy.on{display:flex}
+.hint{font-size:11px;color:var(--muted)}
+</style>
+</head>
+<body>
+<header><h1>コマ画像の編集</h1><a href="/">← アニマティックに戻る</a><span class="hint" id="cost"></span></header>
+<div class="cuts" id="cuts"></div>
+<main>
+  <section>
+    <div class="tools">
+      <button id="tBrush" class="on">ブラシ</button>
+      <button id="tRect">四角</button>
+      <button id="tErase">消しゴム</button>
+      <label class="hint">太さ <input type="range" id="size" min="8" max="200" value="60"></label>
+      <button id="clear">選択をクリア</button>
+      <span class="hint">赤く塗った範囲だけを修正します</span>
+    </div>
+    <div class="wrap" id="wrap"><img id="img" alt=""><canvas id="overlay"></canvas><div class="busy" id="busy">生成中…</div></div>
+    <div class="status" id="status"></div>
+  </section>
+  <aside>
+    <div class="card">
+      <h2>修正する</h2>
+      <textarea id="editPrompt" placeholder="例: 彼女の表情をもう少し柔らかい笑顔に。服と背景はそのまま。"></textarea>
+      <div class="row">
+        <select id="editProvider"><option value="openai">GPT Image(範囲指定可)</option><option value="gemini">Gemini</option><option value="seedream">Seedream</option><option value="codex">Codex</option></select>
+        <select id="quality"><option value="low">低(安い)</option><option value="medium" selected>中</option><option value="high">高</option></select>
+      </div>
+      <div class="row">
+        <button class="primary" id="editRegion">選択範囲を修正</button>
+        <button id="editWhole">全体を修正</button>
+      </div>
+      <div class="hint" style="margin-top:6px">範囲指定(マスク)が正確に効くのは GPT Image だけ。ほかは画像全体を見て直します。</div>
+    </div>
+    <div class="card">
+      <h2>参照画像(見た目を揃える)</h2>
+      <div class="refs" id="refs"></div>
+    </div>
+    <div class="card">
+      <h2>新しく生成する</h2>
+      <textarea id="framePrompt" placeholder="frame_prompt(英語の静止画の説明)"></textarea>
+      <div class="row">
+        <select id="genProvider"><option value="openai">GPT Image</option><option value="codex">Codex(プラン枠)</option><option value="seedream">Seedream</option><option value="gemini">Gemini</option></select>
+        <button id="generate">生成</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>履歴(クリックで表示)</h2>
+      <div class="hist" id="hist"></div>
+      <div class="row"><button id="useThis" disabled>表示中の版を使う</button></div>
+    </div>
+  </aside>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let data, cut, assets = [], tool = 'brush', viewing = null;
+const sel = document.createElement('canvas');           // selection at the picture's natural size (white = edit)
+const sctx = sel.getContext('2d');
+const ov = $('overlay'), octx = ov.getContext('2d');
+
+async function api(path, body) {
+  const r = await fetch(path, body ? {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)} : {cache: 'no-store'});
+  const j = await r.json();
+  if (j.error) throw new Error(j.error);
+  return j;
+}
+
+async function load(keepId) {
+  data = await api('/api/cuts');
+  assets = (await api('/api/assets')).assets;
+  const [w, h] = (data.project.aspect || '16:9').split(':');
+  document.documentElement.style.setProperty('--ar', `${w}/${h}`);
+  const want = keepId || new URLSearchParams(location.search).get('cut') || data.cuts[0].id;
+  cut = data.cuts.find(c => c.id === want) || data.cuts[0];
+  renderCuts(); renderCut();
+}
+
+function src(f) { return f ? '/' + f + '?t=' + Date.now() : ''; }
+
+function renderCuts() {
+  $('cuts').innerHTML = '';
+  for (const c of data.cuts) {
+    const b = document.createElement('button');
+    b.className = c.id === cut.id ? 'active' : '';
+    b.innerHTML = `<img src="${c.frame ? '/' + c.frame : ''}" alt=""><span>${c.id} ${c.summary_ja || ''}</span>`;
+    b.onclick = () => { if (busy()) return; cut = c; history.replaceState(null, '', '?cut=' + c.id); renderCuts(); renderCut(); };
+    $('cuts').appendChild(b);
+  }
+}
+
+function renderCut() {
+  show(cut.frame);
+  $('framePrompt').value = cut.frame_prompt || '';
+  const chosen = new Set(cut.refs || []);
+  $('refs').innerHTML = '';
+  for (const a of assets.filter(a => a.file !== cut.frame)) {
+    const l = document.createElement('label');
+    l.title = a.file;
+    l.innerHTML = `<input type="checkbox" value="${a.file}" ${chosen.has(a.file) ? 'checked' : ''}><img src="/${a.file}" alt="">${a.label}`;
+    $('refs').appendChild(l);
+  }
+  const hist = (cut.frame_history || []).filter(h => h.mode !== 'use').slice().reverse();
+  $('hist').innerHTML = hist.length ? '' : '<div class="hint">まだ履歴がありません</div>';
+  for (const h of hist) {
+    const d = document.createElement('div');
+    d.className = 'h' + (h.file === cut.frame ? ' current' : '');
+    const what = {generate: '生成', edit: '全体修正', 'edit-region': '範囲修正', grab: '動画から', original: '元画像'}[h.mode] || h.mode;
+    d.innerHTML = `<img src="/${h.file}" alt=""><div><b>${h.file.split('/').pop()}</b> ${what} ${h.provider || ''}<br>${(h.prompt || h.source || '').replace(/</g, '&lt;').slice(0, 90)}<br>${h.at || ''}</div>`;
+    d.onclick = () => show(h.file);
+    $('hist').appendChild(d);
+  }
+}
+
+function show(file) {
+  viewing = file;
+  $('useThis').disabled = !file || file === cut.frame;
+  if (!file) { $('img').removeAttribute('src'); status('画像がありません。右の「新しく生成する」で作れます'); return; }
+  $('img').onload = () => {
+    sel.width = $('img').naturalWidth; sel.height = $('img').naturalHeight;
+    sctx.clearRect(0, 0, sel.width, sel.height); paint();
+  };
+  $('img').src = src(file);
+  status(file === cut.frame ? '' : '過去の版を表示中');
+}
+
+function paint() {
+  ov.width = ov.clientWidth * devicePixelRatio; ov.height = ov.clientHeight * devicePixelRatio;
+  octx.clearRect(0, 0, ov.width, ov.height);
+  octx.globalAlpha = .45; octx.drawImage(sel, 0, 0, ov.width, ov.height);
+  octx.globalAlpha = 1; octx.globalCompositeOperation = 'source-in';
+  octx.fillStyle = '#ff4040'; octx.fillRect(0, 0, ov.width, ov.height);
+  octx.globalCompositeOperation = 'source-over';
+}
+
+function toNatural(e) {
+  const r = ov.getBoundingClientRect();
+  return [(e.clientX - r.left) / r.width * sel.width, (e.clientY - r.top) / r.height * sel.height];
+}
+
+let down = null, lastPt = null;
+ov.addEventListener('pointerdown', e => { if (!sel.width) return; ov.setPointerCapture(e.pointerId); down = toNatural(e); lastPt = down; if (tool !== 'rect') stroke(down, down); });
+ov.addEventListener('pointermove', e => {
+  if (!down) return;
+  const p = toNatural(e);
+  if (tool === 'rect') { paint(); const r = ov.getBoundingClientRect(), k = ov.width / sel.width;
+    octx.strokeStyle = '#ff4040'; octx.lineWidth = 2 * devicePixelRatio; octx.setLineDash([6, 4]);
+    octx.strokeRect(down[0] * k, down[1] * k, (p[0] - down[0]) * k, (p[1] - down[1]) * k); octx.setLineDash([]); }
+  else { stroke(lastPt, p); lastPt = p; }
+});
+ov.addEventListener('pointerup', e => {
+  if (!down) return;
+  if (tool === 'rect') { const p = toNatural(e); sctx.fillStyle = '#fff';
+    sctx.fillRect(Math.min(down[0], p[0]), Math.min(down[1], p[1]), Math.abs(p[0] - down[0]), Math.abs(p[1] - down[1])); }
+  down = null; paint();
+});
+function stroke(a, b) {
+  const size = Number($('size').value) * sel.width / 1000;
+  sctx.globalCompositeOperation = tool === 'erase' ? 'destination-out' : 'source-over';
+  sctx.strokeStyle = '#fff'; sctx.lineWidth = size; sctx.lineCap = 'round';
+  sctx.beginPath(); sctx.moveTo(a[0], a[1]); sctx.lineTo(b[0], b[1]); sctx.stroke();
+  sctx.globalCompositeOperation = 'source-over'; paint();
+}
+function hasSelection() {
+  if (!sel.width) return false;
+  const px = sctx.getImageData(0, 0, sel.width, sel.height).data;
+  for (let i = 3; i < px.length; i += 64) if (px[i]) return true;
+  return false;
+}
+function maskDataUrl() {           // OpenAI mask: transparent = edit, opaque = keep
+  const m = document.createElement('canvas'); m.width = sel.width; m.height = sel.height;
+  const c = m.getContext('2d'); c.fillStyle = '#000'; c.fillRect(0, 0, m.width, m.height);
+  c.globalCompositeOperation = 'destination-out'; c.drawImage(sel, 0, 0);
+  return m.toDataURL('image/png');
+}
+
+for (const [id, t] of [['tBrush', 'brush'], ['tRect', 'rect'], ['tErase', 'erase']])
+  $(id).onclick = () => { tool = t; ['tBrush', 'tRect', 'tErase'].forEach(k => $(k).classList.toggle('on', k === id)); };
+$('clear').onclick = () => { sctx.clearRect(0, 0, sel.width, sel.height); paint(); };
+window.addEventListener('resize', paint);
+
+function status(t, err) { $('status').textContent = t; $('status').className = 'status' + (err ? ' err' : ''); }
+function busy(on) { if (on === undefined) return $('busy').classList.contains('on');
+  $('busy').classList.toggle('on', on); document.querySelectorAll('aside button').forEach(b => b.disabled = on); }
+function chosenRefs() { return [...document.querySelectorAll('#refs input:checked')].map(i => i.value); }
+
+async function run(path, body, msg) {
+  busy(true); status(msg);
+  const t0 = Date.now();
+  try {
+    const r = await api(path, body);
+    await load(cut.id);
+    status(`できました(${((Date.now() - t0) / 1000).toFixed(0)}秒): ${r.frame}`);
+  } catch (e) { status(e.message, true); }
+  finally { busy(false); $('useThis').disabled = !viewing || viewing === cut.frame; }
+}
+
+$('editRegion').onclick = () => {
+  const p = $('editPrompt').value.trim();
+  if (!p) return status('修正内容を書いてください', true);
+  if (!hasSelection()) return status('画像の上で修正したい範囲を塗ってください', true);
+  if (viewing !== cut.frame) return status('過去の版を表示中です。「表示中の版を使う」を押してから修正してください', true);
+  run('/api/frame/edit', {cut: cut.id, prompt: p, mask: maskDataUrl(), refs: chosenRefs(), provider: $('editProvider').value, quality: $('quality').value}, '範囲を修正しています…');
+};
+$('editWhole').onclick = () => {
+  const p = $('editPrompt').value.trim();
+  if (!p) return status('修正内容を書いてください', true);
+  if (viewing !== cut.frame) return status('過去の版を表示中です。「表示中の版を使う」を押してから修正してください', true);
+  run('/api/frame/edit', {cut: cut.id, prompt: p, mask: null, refs: chosenRefs(), provider: $('editProvider').value, quality: $('quality').value}, '全体を修正しています…');
+};
+$('generate').onclick = () => {
+  const p = $('framePrompt').value.trim();
+  if (!p) return status('frame_prompt を書いてください', true);
+  run('/api/frame/generate', {cut: cut.id, prompt: p, refs: chosenRefs(), provider: $('genProvider').value, quality: $('quality').value}, '生成しています…(1分ほど)');
+};
+$('useThis').onclick = () => run('/api/frame/use', {cut: cut.id, file: viewing}, '切り替えています…');
+
+load();
+</script>
+</body>
+</html>

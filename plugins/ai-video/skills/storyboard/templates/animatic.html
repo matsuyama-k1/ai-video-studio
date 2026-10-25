@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Animatic</title>
+<style>
+:root{--bg:#f4f3f0;--panel:#fff;--ink:#1d1d1f;--muted:#6b6b70;--line:#e2e0db;--accent:#3a6ff7;--warn:#d9480f;--seg:#e9e7e2}
+@media (prefers-color-scheme:dark){:root{--bg:#131315;--panel:#1d1d20;--ink:#ececef;--muted:#9a9aa2;--line:#2e2e33;--accent:#7d9cff;--warn:#ff8a5c;--seg:#2a2a2f}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 -apple-system,"Hiragino Sans","Noto Sans JP",sans-serif}
+main{max-width:1180px;margin:0 auto;padding:16px;display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:16px}
+@media (max-width:900px){main{grid-template-columns:1fr}}
+h1{font-size:18px;margin:0 0 2px}.sub{color:var(--muted);font-size:12px}
+.stage{position:relative;background:#000;border-radius:10px;overflow:hidden;aspect-ratio:var(--ar,16/9);max-height:68vh;margin:12px auto 0}
+.stage img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform-origin:center;will-change:transform}
+.badge{position:absolute;left:12px;top:12px;background:#0009;color:#fff;font-size:12px;padding:3px 8px;border-radius:5px}
+.subtitle{position:absolute;left:50%;bottom:7%;transform:translateX(-50%);max-width:86%;background:#000a;color:#fff;padding:6px 14px;border-radius:6px;font-size:clamp(13px,2.2vw,20px);text-align:center}
+.subtitle:empty{display:none}
+.controls{display:flex;align-items:center;gap:8px;margin:10px 0}
+button{font:inherit;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:7px;padding:6px 12px;cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button:disabled{opacity:.5;cursor:default}
+.time{font-variant-numeric:tabular-nums;color:var(--muted);font-size:12px}
+.timeline{display:flex;gap:2px;height:54px;position:relative;cursor:pointer;user-select:none}
+.seg{background:var(--seg);border-radius:4px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:11px;overflow:hidden;min-width:0;position:relative}
+.seg.active{background:var(--accent);color:#fff}
+.seg .warn{position:absolute;top:3px;right:4px;width:7px;height:7px;border-radius:50%;background:var(--warn)}
+.seg.scene-start{margin-left:6px}
+.playhead{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--warn);pointer-events:none}
+aside{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;align-self:start;position:sticky;top:16px}
+aside h2{font-size:15px;margin:0 0 10px;display:flex;justify-content:space-between;align-items:baseline}
+label{display:block;font-size:12px;color:var(--muted);margin:10px 0 4px}
+input[type=text],textarea{width:100%;font:inherit;border:1px solid var(--line);border-radius:6px;padding:6px 8px;background:var(--bg);color:var(--ink)}
+textarea{min-height:52px;resize:vertical}
+.row{display:flex;align-items:center;gap:8px}.row input[type=range]{flex:1}
+.facts{font-size:12px;color:var(--muted);margin-top:10px;display:grid;grid-template-columns:62px 1fr;gap:2px 8px}
+.msg{font-size:12px;margin-top:8px;color:var(--muted)}.msg.err{color:var(--warn)}
+.ttsnote{font-size:12px;color:var(--muted)}.ttsnote.over{color:var(--warn)}
+</style>
+</head>
+<body>
+<main>
+  <section>
+    <h1 id="title">Animatic</h1>
+    <div class="sub" id="meta"></div>
+    <div class="stage" id="stage"><img id="img" alt=""><div class="badge" id="badge"></div><div class="subtitle" id="subtitle"></div></div>
+    <div class="controls">
+      <button id="restart" title="最初から">⏮</button>
+      <button class="primary" id="play">▶ 再生</button>
+      <button id="prev" title="前のカット">◀</button>
+      <button id="next" title="次のカット">▶</button>
+      <span class="time" id="time">0.0 / 0.0s</span>
+    </div>
+    <div class="timeline" id="timeline"><div class="playhead" id="playhead"></div></div>
+  </section>
+  <aside>
+    <h2><span id="cutTitle">—</span><span class="time" id="cutScene"></span></h2>
+    <label>要約</label><input type="text" id="summary">
+    <label>尺</label>
+    <div class="row"><input type="range" id="duration" min="1" max="15" step="0.5"><span id="durationVal" class="time"></span></div>
+    <div class="ttsnote" id="ttsNote"></div>
+    <div id="linesBox"></div>
+    <label>ナレーション</label><textarea id="narration" placeholder="セリフ以外の読み上げ"></textarea>
+    <label>メモ</label><textarea id="notes"></textarea>
+    <div class="row" style="margin-top:12px">
+      <button class="primary" id="save" disabled>保存</button>
+      <button id="tts">この音声を作り直す</button>
+      <button id="editFrame">画像を編集</button>
+    </div>
+    <div class="msg" id="msg"></div>
+    <div class="facts" id="facts"></div>
+  </aside>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let data = null, cuts = [], starts = [], total = 0, t = 0, playing = false, last = 0, active = -1, dirty = new Set();
+const audio = new Audio();
+
+async function load() {
+  data = await (await fetch('/api/cuts', {cache: 'no-store'})).json();
+  cuts = data.cuts;
+  const [w, h] = (data.project.aspect || '16:9').split(':');
+  document.documentElement.style.setProperty('--ar', `${w}/${h}`);
+  $('title').textContent = (data.project.title || '') + ' アニマティック';
+  layout();
+  show(Math.min(Math.max(active, 0), cuts.length - 1), true);
+}
+
+function layout() {
+  starts = []; total = 0;
+  for (const c of cuts) { starts.push(total); total += Number(c.duration || 0); }
+  $('meta').textContent = `${cuts.length}カット · ${total.toFixed(1)}秒 · ${data.project.aspect || ''}`;
+  const tl = $('timeline');
+  tl.querySelectorAll('.seg').forEach(e => e.remove());
+  cuts.forEach((c, i) => {
+    const s = document.createElement('div');
+    s.className = 'seg' + (i && c.scene !== cuts[i - 1].scene ? ' scene-start' : '');
+    s.style.flex = Number(c.duration || 0.1);
+    s.innerHTML = `<b>${c.id}</b><span>${Number(c.duration).toFixed(1)}s</span>` +
+      (c.tts && c.tts.duration > c.duration ? '<i class="warn" title="音声が尺より長い"></i>' : '');
+    s.onclick = () => { pause(); seek(starts[i] + 0.001); };
+    tl.appendChild(s);
+  });
+  updateHead();
+}
+
+function cutAt(time) {
+  let i = 0;
+  while (i + 1 < cuts.length && time >= starts[i + 1]) i++;
+  return i;
+}
+
+function motion(c, p) {
+  const z = {in: 1 + 0.12 * p, out: 1.12 - 0.12 * p}[c._motion] ?? 1.06;
+  const shift = 4 * (z - 1) * 100 / 2;
+  const x = {left: shift * (1 - 2 * p), right: -shift * (1 - 2 * p)}[c._motion] || 0;
+  const y = {up: shift * (1 - 2 * p), down: -shift * (1 - 2 * p)}[c._motion] || 0;
+  return `translate(${x}%, ${y}%) scale(${z})`;
+}
+
+function lines(c) {
+  const out = ((c.audio || {}).dialogue || []).map(d => d.line).filter(Boolean);
+  if (c.narration_ja) out.push(c.narration_ja);
+  return out;
+}
+
+function show(i, fill) {
+  const c = cuts[i];
+  if (!c) return;
+  if (i !== active) {
+    active = i;
+    $('img').src = c.frame ? '/' + c.frame : `/storyboard/frames/_placeholder-${c.id}.png`;
+    $('img').onerror = () => { $('img').removeAttribute('src'); };
+    $('badge').textContent = `${c.id} · ${Number(c.duration).toFixed(1)}s`;
+    $('subtitle').textContent = lines(c).join(' / ');
+    document.querySelectorAll('.seg').forEach((s, k) => s.classList.toggle('active', k === i));
+    if (playing) startAudio(c, t - starts[i]);
+    fill = true;
+  }
+  if (fill) inspector(c);
+}
+
+function startAudio(c, offset) {
+  audio.pause();
+  if (!c.tts || !c.tts.file) return;
+  audio.src = '/' + c.tts.file + '?h=' + c.tts.hash;
+  audio.currentTime = Math.max(0, offset);
+  if (offset < c.tts.duration) audio.play().catch(() => {});
+}
+
+function inspector(c) {
+  $('cutTitle').textContent = c.id;
+  $('cutScene').textContent = c.scene || '';
+  $('summary').value = c.summary_ja || '';
+  $('duration').value = c.duration;
+  $('durationVal').textContent = Number(c.duration).toFixed(1) + '秒';
+  $('ttsNote').classList.toggle('over', !!(c.tts && c.tts.duration > c.duration));
+  $('ttsNote').textContent = c.tts && c.tts.duration > c.duration ? `音声 ${c.tts.duration}秒 が尺より長い` : (c.tts ? `音声 ${c.tts.duration}秒` : '');
+  $('narration').value = c.narration_ja || '';
+  $('notes').value = c.notes_ja || '';
+  const box = $('linesBox');
+  box.innerHTML = '';
+  ((c.audio || {}).dialogue || []).forEach((d, k) => {
+    const l = document.createElement('label'); l.textContent = `セリフ ${k + 1}` + (d.speaker ? `(${d.speaker})` : '');
+    const inp = document.createElement('input'); inp.type = 'text'; inp.value = d.line || '';
+    inp.oninput = () => { d.line = inp.value; mark(c); };
+    box.append(l, inp);
+  });
+  const facts = [['構図', (c.composition || {}).ja], ['カメラ', (c.camera || {}).ja], ['光', (c.lighting || {}).ja],
+                 ['音', (c.audio || {}).ja], ['つなぎ', (c.tempo || {}).transition_out]].filter(f => f[1]);
+  $('facts').innerHTML = facts.map(([k, v]) => `<span>${k}</span><span>${String(v).replace(/</g, '&lt;')}</span>`).join('');
+}
+
+function mark(c) { dirty.add(c.id); $('save').disabled = false; $('msg').textContent = '未保存の変更があります'; $('msg').className = 'msg'; }
+
+$('summary').oninput = e => { const c = cuts[active]; c.summary_ja = e.target.value; mark(c); };
+$('narration').oninput = e => { const c = cuts[active]; c.narration_ja = e.target.value; mark(c); };
+$('notes').oninput = e => { const c = cuts[active]; c.notes_ja = e.target.value; mark(c); };
+$('duration').oninput = e => {
+  const c = cuts[active]; c.duration = Number(e.target.value);
+  $('durationVal').textContent = c.duration.toFixed(1) + '秒';
+  mark(c); const keep = starts[active]; layout(); t = Math.min(t, total); show(active, true); if (t < keep) t = keep; updateHead();
+};
+
+async function save() {
+  const edits = cuts.filter(c => dirty.has(c.id)).map(c => ({
+    id: c.id, duration: c.duration, summary_ja: c.summary_ja || '', notes_ja: c.notes_ja || '',
+    narration_ja: c.narration_ja || '', lines: ((c.audio || {}).dialogue || []).map(d => d.line)}));
+  const r = await (await fetch('/api/cuts', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({cuts: edits})})).json();
+  if (r.error) { $('msg').textContent = r.error; $('msg').className = 'msg err'; return false; }
+  dirty.clear(); $('save').disabled = true;
+  $('msg').textContent = r.changes.length ? `保存しました(${r.changes.length}件、log.mdに記録)` : '変更なし';
+  return true;
+}
+$('save').onclick = save;
+$('editFrame').onclick = async () => { if (dirty.size && !(await save())) return; location.href = '/frame?cut=' + encodeURIComponent(cuts[active].id); };
+
+$('tts').onclick = async () => {
+  if (dirty.size && !(await save())) return;
+  const c = cuts[active];
+  $('msg').textContent = '音声を生成中…';
+  const r = await (await fetch('/api/tts?cut=' + encodeURIComponent(c.id), {method: 'POST', body: '{}'})).json();
+  if (r.error) { $('msg').textContent = r.error; $('msg').className = 'msg err'; return; }
+  c.tts = r.tts[c.id]; $('msg').textContent = c.tts ? `音声 ${c.tts.duration}秒` : 'セリフがありません';
+  layout(); inspector(c);
+};
+
+function seek(time) {
+  t = Math.max(0, Math.min(total, time));
+  const i = cutAt(t);
+  if (i !== active) show(i, true); else if (playing) startAudio(cuts[i], t - starts[i]);
+  frame();
+}
+
+function frame() {
+  const c = cuts[active];
+  if (c) {
+    const p = Math.min(1, Math.max(0, (t - starts[active]) / Math.max(0.01, c.duration)));
+    $('img').style.transform = motion(c, p);
+  }
+  updateHead();
+}
+
+function updateHead() {
+  $('time').textContent = `${t.toFixed(1)} / ${total.toFixed(1)}s`;
+  const tl = $('timeline');
+  $('playhead').style.left = (total ? t / total : 0) * tl.clientWidth + 'px';
+}
+
+function tick(now) {
+  if (!playing) return;
+  t += (now - last) / 1000; last = now;
+  if (t >= total) { t = total; pause(); frame(); return; }
+  const i = cutAt(t);
+  if (i !== active) show(i, true);
+  frame();
+  requestAnimationFrame(tick);
+}
+
+function play() {
+  if (t >= total - 0.01) t = 0;
+  playing = true; $('play').textContent = '❚❚ 一時停止';
+  active = -1; show(cutAt(t), true);
+  last = performance.now(); requestAnimationFrame(tick);
+}
+function pause() { playing = false; audio.pause(); $('play').textContent = '▶ 再生'; }
+
+$('play').onclick = () => playing ? pause() : play();
+$('restart').onclick = () => { pause(); seek(0); };
+$('prev').onclick = () => { pause(); seek(starts[Math.max(0, active - 1)] + 0.001); };
+$('next').onclick = () => { pause(); seek(starts[Math.min(cuts.length - 1, active + 1)] + 0.001); };
+$('timeline').addEventListener('click', e => {
+  if (e.target.closest('.seg')) return;
+  const r = e.currentTarget.getBoundingClientRect(); pause(); seek((e.clientX - r.left) / r.width * total);
+});
+document.addEventListener('keydown', e => {
+  if (e.target.matches('input,textarea')) return;
+  if (e.code === 'Space') { e.preventDefault(); playing ? pause() : play(); }
+  if (e.code === 'ArrowRight') $('next').click();
+  if (e.code === 'ArrowLeft') $('prev').click();
+});
+window.addEventListener('resize', updateHead);
+window.addEventListener('beforeunload', e => { if (dirty.size) { e.preventDefault(); e.returnValue = ''; } });
+load();
+</script>
+</body>
+</html>
