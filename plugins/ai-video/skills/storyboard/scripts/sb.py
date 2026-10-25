@@ -7,13 +7,15 @@ rendered as an HTML sheet and turned into per-scene prompts for the video-prompt
   sb.py grab <project> <cut> <video> <sec>     use a frame from a video as the cut's picture
   sb.py frame <project> <cut> [--provider codex|openai|seedream|gemini] [--quality low|medium|high] [--dry-run]
                                                generate the cut's picture from frame_prompt (+ refs)
-  sb.py edit <project> <cut> --prompt "..." [--mask m.png] [--ref refs/x.png] [--provider openai] [--reason "..."]
-                                               edit the current picture (mask: transparent = area to change)
+  sb.py edit <project> <cut> --prompt "..." [--box x,y,w,h | --mask m.png] [--ref refs/x.png] [--provider openai] [--reason "..."]
+                                               edit the current picture; --box = rectangle in % of the picture
   sb.py tts <project> [--rate 180]             temporary voice for every cut (macOS say) -> storyboard/audio/
-  sb.py animatic <project> [--port 8765]       play / edit the storyboard in the browser (edits saved to cuts.json)
+  sb.py animatic <project>                     temporary voice + MP4 (storyboard/animatic.mp4), opened in the video player
+  sb.py editor <project> [--port 8765]         optional local editor: paint a region to fix, tweak durations / lines
   sb.py export <project>                       storyboard/animatic.mp4 (stills + camera move + voice + subtitles)
   sb.py sheet <project> [--cols 3]             storyboard/sheet.png (all cuts on one page)
-  sb.py render <project> [--open]              write storyboard/index.html
+  sb.py render <project> [--open]              storyboard page for an Artifact (index.html + files to publish); --open = local preview
+  sb.py set-url <project> <artifact url>       remember the storyboard Artifact so later updates keep the same link
   sb.py to-prompts <project> [--scenes s01,s02] [--reason "..."]
                                                write/revise scenes/<scene>/prompts/vNNN.md from the cuts
 
@@ -137,107 +139,63 @@ def cmd_frame(a):
     save(a.project, data)
 
 
+def box_mask(image, box):
+    """Mask PNG for a rectangle given in percent "x,y,w,h" of the picture: transparent inside = area to change."""
+    x, y, w, hgt = (float(v) / 100 for v in box.split(","))
+    r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height",
+                        "-of", "csv=p=0", str(image)], capture_output=True, text=True, check=True)
+    iw, ih = (int(v) for v in r.stdout.strip().split(","))
+    x0, y0, x1, y1 = int(x * iw), int(y * ih), int((x + w) * iw), int((y + hgt) * ih)
+    expr = f"if(between(X,{x0},{x1})*between(Y,{y0},{y1}),0,255)"
+    out = subprocess.run(["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i", f"color=c=black:s={iw}x{ih}",
+                          "-frames:v", "1", "-vf", f"format=rgba,geq=r=0:g=0:b=0:a='{expr}'",
+                          "-f", "image2pipe", "-vcodec", "png", "-"], capture_output=True, check=True)
+    return out.stdout
+
+
 def cmd_edit(a):
     import frames
     data = load(a.project)
     cut = find_cut(data, a.cut)
-    mask = Path(a.mask).read_bytes() if a.mask else None
+    mask = Path(a.mask).read_bytes() if a.mask else (box_mask(ROOT / a.project / cut["frame"], a.box) if a.box else None)
     refs = a.ref if a.ref is not None else []
     print(frames.edit(ROOT / a.project, data, cut, a.provider, a.prompt, mask, refs, a.quality, a.reason))
     save(a.project, data)
 
 
-# ---------- HTML sheet ----------
-
-CSS = """
-:root{--bg:#f6f5f2;--card:#fff;--ink:#1d1d1f;--muted:#6b6b70;--line:#e3e1dc;--accent:#3a6ff7;--tag:#eef1fb}
-@media (prefers-color-scheme:dark){:root{--bg:#141416;--card:#1e1e21;--ink:#ececef;--muted:#9a9aa2;--line:#2e2e33;--accent:#7d9cff;--tag:#252a3a}}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55 -apple-system,"Hiragino Sans","Noto Sans JP",sans-serif}
-header{padding:24px 24px 8px}h1{margin:0 0 4px;font-size:22px}.sub{color:var(--muted)}
-.timeline{display:flex;height:28px;margin:16px 24px;border-radius:6px;overflow:hidden;border:1px solid var(--line)}
-.timeline div{display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--ink);border-right:1px solid var(--line);white-space:nowrap;overflow:hidden}
-.scene{margin:24px}.scene h2{font-size:15px;margin:0 0 10px;color:var(--muted);font-weight:600}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px}
-.cut{background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden;display:flex;flex-direction:column}
-.frame{aspect-ratio:var(--ar);background:repeating-linear-gradient(45deg,var(--line) 0 2px,transparent 2px 12px);display:flex;align-items:center;justify-content:center;color:var(--muted)}
-.frame img{width:100%;height:100%;object-fit:cover;display:block}
-.head{display:flex;gap:8px;align-items:baseline;padding:10px 12px 4px}.id{font-weight:700;font-size:16px}.dur{color:var(--accent);font-weight:600}
-.tags{display:flex;flex-wrap:wrap;gap:4px;padding:0 12px 6px}.tags span{background:var(--tag);border-radius:4px;padding:1px 6px;font-size:12px}
-.sum{padding:0 12px 8px;font-weight:600}
-dl{margin:0;padding:0 12px 12px;display:grid;grid-template-columns:72px 1fr;gap:4px 8px}dt{color:var(--muted);font-size:12px}dd{margin:0;font-size:13px}
-details{border-top:1px solid var(--line);padding:6px 12px;font-size:12px;color:var(--muted)}details pre{white-space:pre-wrap;margin:6px 0 0;font:12px/1.5 ui-monospace,Menlo,monospace;color:var(--ink)}
-.line{font-style:italic}
-@media print{body{background:#fff}.cut{break-inside:avoid}}
-"""
-
-
-def esc(s):
-    return html.escape(str(s or ""))
-
-
-def audio_ja(c):
-    a = c.get("audio") or {}
-    parts = []
-    for d in a.get("dialogue") or []:
-        parts.append(f"<span class='line'>{esc(d.get('speaker'))}「{esc(d.get('line'))}」</span>")
-    if a.get("ja"):
-        parts.append(esc(a["ja"]))
-    return "<br>".join(parts)
-
-
-def card(c, project):
-    comp, cam, tempo = c.get("composition") or {}, c.get("camera") or {}, c.get("tempo") or {}
-    img = f"<img src='../{esc(c['frame'])}' alt='{esc(c['id'])}'>" if c.get("frame") else "画像なし"
-    tags = [comp.get("shot"), comp.get("angle"), comp.get("lens"), cam.get("move"), tempo.get("pace")]
-    rows = [
-        ("構図", comp.get("ja")), ("カメラ", cam.get("ja")), ("光", g(c, "lighting", "ja")),
-        ("色・質感", g(c, "color", "ja")), ("動き", g(c, "action", "ja")), ("場所", g(c, "setting", "ja")),
-        ("音", audio_ja(c)), ("テンポ", tempo.get("ja")), ("つなぎ", tempo.get("transition_out")),
-        ("参考", ", ".join(c.get("refs") or []) + (f" / 動画 {g(c, 'ref_video', 'file')} {g(c, 'ref_video', 'start')}–{g(c, 'ref_video', 'end')}s: {g(c, 'ref_video', 'borrow_ja')}" if c.get("ref_video") else "")),
-        ("メモ", c.get("notes_ja")),
-    ]
-    dl = "".join(f"<dt>{k}</dt><dd>{v if k == '音' else esc(v)}</dd>" for k, v in rows if v)
-    en = "\n".join(f"{k}: {v}" for k, v in [
-        ("subject", g(c, "subject", "en")), ("action", g(c, "action", "en")), ("setting", g(c, "setting", "en")),
-        ("composition", ", ".join(x for x in [SHOT_NAMES.get(comp.get("shot", ""), comp.get("shot", "")), comp.get("angle"), comp.get("lens"), comp.get("framing")] if x)),
-        ("camera", cam.get("move")), ("lighting", g(c, "lighting", "en")), ("color", g(c, "color", "en")),
-        ("sound", sound_en(c, "kling")), ("frame_prompt", c.get("frame_prompt"))] if v)
-    return (f"<article class='cut'><div class='frame'>{img}</div>"
-            f"<div class='head'><span class='id'>{esc(c['id'])}</span><span class='dur'>{esc(c.get('duration'))}s</span></div>"
-            f"<div class='tags'>{''.join(f'<span>{esc(t)}</span>' for t in tags if t)}</div>"
-            f"<div class='sum'>{esc(c.get('summary_ja'))}</div><dl>{dl}</dl>"
-            f"<details><summary>English</summary><pre>{esc(en)}</pre></details></article>")
-
+# ---------- storyboard page (Artifact) ----------
 
 def cmd_render(a):
+    """Write storyboard/index.html (Artifact page) + preview.html (local copy) and print what to publish."""
+    import page
     data = load(a.project)
-    proj, cuts = data["project"], data["cuts"]
-    w, h = (proj.get("aspect") or "16:9").split(":")
-    total = sum(float(c.get("duration") or 0) for c in cuts) or 1
-    scenes = []
-    for c in cuts:
-        if not scenes or scenes[-1][0] != c.get("scene"):
-            scenes.append((c.get("scene"), []))
-        scenes[-1][1].append(c)
-    hues = [210, 25, 140, 280, 50, 330, 180, 95]
-    timeline = "".join(
-        f"<div style='flex:{float(c.get('duration') or 0)};background:hsl({hues[i % len(hues)]} 60% 60% / .35)' "
-        f"title='{esc(c['id'])} {esc(c.get('duration'))}s'>{esc(c['id'])}</div>"
-        for i, (_, group) in enumerate(scenes) for c in group)
-    body = "".join(
-        f"<section class='scene'><h2>{esc(name)} · {sum(float(c.get('duration') or 0) for c in group):.1f}s</h2>"
-        f"<div class='grid'>{''.join(card(c, a.project) for c in group)}</div></section>"
-        for name, group in scenes)
-    page = (f"<!doctype html><html lang='ja'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
-            f"<title>{esc(proj.get('title'))} 絵コンテ</title><style>{CSS}</style></head>"
-            f"<body style='--ar:{w}/{h}'><header><h1>{esc(proj.get('title'))} 絵コンテ</h1>"
-            f"<div class='sub'>{len(cuts)}カット · {total:.1f}秒 · {esc(proj.get('aspect'))} · {esc(proj.get('style_ja'))}</div></header>"
-            f"<div class='timeline'>{timeline}</div>{body}</body></html>")
-    out = sb_dir(a.project) / "index.html"
-    out.write_text(page)
-    print(out)
+    project_dir = ROOT / a.project
+    provider = data["project"].get("provider") or "kling"
+    style_en = g(data, "project", "style_en")
+    html, files = page.build(project_dir, data, lambda c: cut_text(c, provider, style_en))
+    d = sb_dir(a.project)
+    (d / "index.html").write_text(html)
+    (d / "preview.html").write_text(page.wrap(html))
+    total = sum(float(c.get("duration") or 0) for c in data["cuts"])
+    info = {
+        "file_path": str((d / "index.html").resolve()),
+        "files": {k: str(Path(v).resolve()) for k, v in files.items()},
+        "url": data["project"].get("artifact_url") or None,
+        "description": f"{len(data['cuts'])}カット・{total:g}秒の絵コンテ。カットごとの画像・構図・カメラ・光・音"
+                       + ("と仮の音声つきアニマティック" if "animatic.mp4" in files else ""),
+        "local_preview": str((d / "preview.html").resolve()),
+    }
+    (d / "publish.json").write_text(json.dumps(info, ensure_ascii=False, indent=2))
+    print(json.dumps(info, ensure_ascii=False, indent=2))
     if a.open:
-        subprocess.run(["open", str(out)])
+        subprocess.run(["open", info["local_preview"]])
+
+
+def cmd_set_url(a):
+    data = load(a.project)
+    data["project"]["artifact_url"] = a.url
+    save(a.project, data)
+    print(a.url)
 
 
 # ---------- cuts -> prompts ----------
@@ -373,6 +331,19 @@ def cmd_tts(a):
 
 
 def cmd_animatic(a):
+    """Simplest preview: build the MP4 (stills + camera move + temporary voice + subtitles) and open it."""
+    import animatic
+    data = load(a.project)
+    animatic.tts_all(ROOT / a.project, data)
+    save(a.project, data)
+    out = animatic.export(ROOT / a.project, data)
+    print(out)
+    if not a.no_open:
+        subprocess.run(["open", str(out)])
+
+
+def cmd_editor(a):
+    """Optional local editor (browser): paint a region to fix, tweak durations/lines. Only when asked."""
     import animatic
     project_dir = ROOT / a.project
     data = load(a.project)
@@ -404,10 +375,12 @@ def main():
     s = sub.add_parser("check"); s.add_argument("project"); s.set_defaults(f=cmd_check)
     s = sub.add_parser("grab"); s.add_argument("project"); s.add_argument("cut"); s.add_argument("video"); s.add_argument("sec", type=float); s.set_defaults(f=cmd_grab)
     s = sub.add_parser("frame"); s.add_argument("project"); s.add_argument("cut"); s.add_argument("--provider", default="codex"); s.add_argument("--quality"); s.add_argument("--dry-run", action="store_true"); s.set_defaults(f=cmd_frame)
-    s = sub.add_parser("edit"); s.add_argument("project"); s.add_argument("cut"); s.add_argument("--prompt", required=True); s.add_argument("--mask"); s.add_argument("--ref", action="append"); s.add_argument("--provider", default="openai"); s.add_argument("--quality"); s.add_argument("--reason"); s.set_defaults(f=cmd_edit)
+    s = sub.add_parser("edit"); s.add_argument("project"); s.add_argument("cut"); s.add_argument("--prompt", required=True); s.add_argument("--mask"); s.add_argument("--box", help='rectangle in percent "x,y,w,h"'); s.add_argument("--ref", action="append"); s.add_argument("--provider", default="openai"); s.add_argument("--quality"); s.add_argument("--reason"); s.set_defaults(f=cmd_edit)
     s = sub.add_parser("render"); s.add_argument("project"); s.add_argument("--open", action="store_true"); s.set_defaults(f=cmd_render)
     s = sub.add_parser("tts"); s.add_argument("project"); s.add_argument("--rate", type=int); s.set_defaults(f=cmd_tts)
-    s = sub.add_parser("animatic"); s.add_argument("project"); s.add_argument("--port", type=int, default=8765); s.add_argument("--no-open", action="store_true"); s.set_defaults(f=cmd_animatic)
+    s = sub.add_parser("animatic"); s.add_argument("project"); s.add_argument("--no-open", action="store_true"); s.set_defaults(f=cmd_animatic)
+    s = sub.add_parser("editor"); s.add_argument("project"); s.add_argument("--port", type=int, default=8765); s.add_argument("--no-open", action="store_true"); s.set_defaults(f=cmd_editor)
+    s = sub.add_parser("set-url"); s.add_argument("project"); s.add_argument("url"); s.set_defaults(f=cmd_set_url)
     s = sub.add_parser("export"); s.add_argument("project"); s.set_defaults(f=cmd_export)
     s = sub.add_parser("sheet"); s.add_argument("project"); s.add_argument("--cols", type=int, default=3); s.set_defaults(f=cmd_sheet)
     s = sub.add_parser("to-prompts"); s.add_argument("project"); s.add_argument("--scenes"); s.add_argument("--reason"); s.set_defaults(f=cmd_to_prompts)

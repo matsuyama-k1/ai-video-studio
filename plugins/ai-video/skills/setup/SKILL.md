@@ -1,7 +1,7 @@
 ---
 name: setup
 description: AI動画ツール(絵コンテ・アニマティック・動画生成)を使えるように準備する初期設定。足りない部品(ffmpeg)の自動インストール、作業フォルダの作成、APIキーの設定と動作確認、サンプルの再生まで、専門用語なしで案内する。「初めて使う」「セットアップ」「使えるようにして」「準備して」「動かない」「APIキーを設定したい」などのときに使う。
-allowed-tools: Bash(python3 "${CLAUDE_SKILL_DIR}/scripts/doctor.py" *) Bash(python3 "${CLAUDE_SKILL_DIR}/../storyboard/scripts/sb.py" tts *) Bash(python3 "${CLAUDE_SKILL_DIR}/../storyboard/scripts/sb.py" animatic *) Bash(open *) Bash(mkdir -p *) Bash(pwd) Bash(ls *)
+allowed-tools: Bash(python3 "${CLAUDE_SKILL_DIR}/scripts/doctor.py" *) Bash(python3 "${CLAUDE_SKILL_DIR}/../storyboard/scripts/sb.py" animatic *) Bash(python3 "${CLAUDE_SKILL_DIR}/../storyboard/scripts/sb.py" render *) Bash(python3 "${CLAUDE_SKILL_DIR}/../storyboard/scripts/sb.py" set-url *) Bash(open *) Bash(mkdir -p *) Bash(pwd) Bash(ls *)
 ---
 
 # setup: はじめての準備
@@ -97,15 +97,14 @@ AIにあまり詳しくない人向けの初期設定。相手は専門用語を
 
 ## 5/5 サンプルで試す
 
-AskUserQuestion で「サンプルの絵コンテを再生してみますか(無料)」と聞く。OKなら次を実行する。
+AskUserQuestion で「サンプルの絵コンテを見てみますか(無料)」と聞く。OKなら次を実行する。
 
 1. `doctor demo` を実行する。projects/sample ができる(3カット・画像なし)。
-2. `python3 "${CLAUDE_SKILL_DIR}/../storyboard/scripts/sb.py" tts sample` で、仮の音声を作る。
-3. `python3 "${CLAUDE_SKILL_DIR}/../storyboard/scripts/sb.py" animatic sample` を Bash の `run_in_background` で実行すると、ブラウザが開く。
-4. 操作を伝える。
-   - 「再生」ボタン(またはスペースキー)で再生する。
-   - 右の欄で、尺やセリフを変えて「保存」できる。
-   - 灰色の画面は、画像がまだないカット。
+2. `python3 "${CLAUDE_SKILL_DIR}/../storyboard/scripts/sb.py" animatic sample` を実行する。仮の音声つきの10秒の動画ができ、動画プレーヤーで開く。
+   - 「灰色の画面は、まだ画像がないカットです。声はパソコンの読み上げです」と伝える。
+3. `python3 "${CLAUDE_SKILL_DIR}/../storyboard/scripts/sb.py" render sample` を実行し、出力の `file_path`・`files`・`description` で Artifact を公開する(初回は `icon: "film"`)。そのあと `sb.py set-url sample <URL>` を実行する。
+   - 「これが絵コンテのページです。カットごとの画像・カメラ・音が並び、上でアニマティックも見られます」とリンクを伝える。
+   - Artifact ツールがないときは `sb.py render sample --open` で開く。
 
 ## 最後に: 使い方の早見表
 
@@ -115,10 +114,12 @@ AskUserQuestion で「サンプルの絵コンテを再生してみますか(無
 | --- | --- |
 | 動画の設計図(絵コンテ)を作る | 「15秒の〇〇の動画の絵コンテを作りたい」 |
 | 参考動画をまねる | 「この動画みたいにしたい」+ 動画ファイルをドラッグ |
-| 仮の音声付きで再生する | 「アニマティックで再生して」 |
-| 画像の一部を直す | 「c02の画像を直したい」(ブラウザで範囲を塗って直せる) |
+| 仮の音声付きで再生する | 「アニマティックで再生して」(動画プレーヤーで開きます) |
+| 画像の一部を直す | 「c02 の右上に気球を足して」のように、直したい場所と内容を言う |
 | 動画にする | 「プロンプトにして Kling で生成して」(費用は事前に確認します) |
 | 生成した動画を直す | 「s02 の笑顔が硬いので直して」 |
 | 準備をやり直す・調子が悪い | 「/ai-video:setup」 |
 
 困ったときは「うまくいかない」と話しかければよい、と一言添える。
+
+最後に AskUserQuestion で「続けて、10秒の動画を1本作ってみますか(15分ほど)」と聞く。作る → tutorial スキルを始める。あとで → 「いつでも /ai-video:tutorial で始められます」と伝えて終える。
